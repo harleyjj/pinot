@@ -55,7 +55,7 @@ public class SegmentMergeCommand extends AbstractBaseAdminCommand implements Com
   private static final String DEFAULT_MERGE_TYPE = "CONCATENATE";
   private static final int DEFAULT_SEQUENCE_ID = 0;
 
-  @Option(name = "-inputSegments", required = true, metaVar = "<String>", usage = "Comma separated input segment paths that need to be merged")
+  @Option(name = "-inputPaths", required = true, metaVar = "<String>", usage = "Comma separated input segment paths that need to be merged or a directory path that contains input segments")
   private String _inputSegmentPaths;
 
   @Option(name = "-outputPath", required = true, metaVar = "<String>", usage = "Output segment path. This should be different from working directory.")
@@ -112,6 +112,23 @@ public class SegmentMergeCommand extends AbstractBaseAdminCommand implements Com
       workingDir = new File(_workingDirectory);
     }
 
+    // Check if the input path is directory or comma separated files
+    String[] paths = _inputSegmentPaths.split(INPUT_SEGMENT_SEPARATOR);
+    List<String> inputPaths = new ArrayList<>();
+    if (paths.length == 1) {
+      File inputDirectory = new File(paths[0].trim());
+      if (inputDirectory.isDirectory()) {
+        for (File path : inputDirectory.listFiles()) {
+          inputPaths.add(path.getAbsolutePath());
+        }
+      }
+    } else {
+      for (String path : paths) {
+        inputPaths.add(path.trim());
+      }
+    }
+    Preconditions.checkState(inputPaths.size() > 1, "Input paths has to contain at least 2 segments");
+
     try {
       // Get the list of input segment index directories
       List<File> inputIndexDirs = new ArrayList<>();
@@ -120,8 +137,8 @@ public class SegmentMergeCommand extends AbstractBaseAdminCommand implements Com
         File untarredSegments = new File(workingDir, "untarredSegments");
         Preconditions.checkState(untarredSegments.mkdirs());
         int segmentNum = 0;
-        for (String tarredSegmentPath : _inputSegmentPaths.split(INPUT_SEGMENT_SEPARATOR)) {
-          File tarredSegmentFile = new File(tarredSegmentPath.trim());
+        for (String tarredSegmentPath : inputPaths) {
+          File tarredSegmentFile = new File(tarredSegmentPath);
           File segmentDir = new File(untarredSegments, "segmentDir_" + segmentNum++);
           TarGzCompressionUtils.unTar(tarredSegmentFile, segmentDir);
           File[] files = segmentDir.listFiles();
@@ -131,8 +148,8 @@ public class SegmentMergeCommand extends AbstractBaseAdminCommand implements Com
         }
       } else {
         // Simply add the given input paths when the input directories are not tarred
-        for (String path : _inputSegmentPaths.split(INPUT_SEGMENT_SEPARATOR)) {
-          inputIndexDirs.add(new File(path.trim()));
+        for (String path : inputPaths) {
+          inputIndexDirs.add(new File(path));
         }
       }
       LOGGER.info("Processed input segment paths: {}", inputIndexDirs);
@@ -210,8 +227,8 @@ public class SegmentMergeCommand extends AbstractBaseAdminCommand implements Com
     String tableName = TableNameBuilder.extractRawTableName(tableConfig.getTableName());
 
     // Compute mix/max time from segment metadata
-    long minStartTime = Integer.MAX_VALUE;
-    long maxEndTime = Integer.MIN_VALUE;
+    long minStartTime =  Long.MAX_VALUE;
+    long maxEndTime = Long.MIN_VALUE;
     for (File indexDir : inputIndexDirs) {
       SegmentMetadata segmentMetadata = new SegmentMetadataImpl(indexDir);
       long currentStartTime = segmentMetadata.getStartTime();
